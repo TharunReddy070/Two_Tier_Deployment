@@ -1,0 +1,12 @@
+FROM nginx:latest
+
+# Remove default nginx site config
+RUN rm /etc/nginx/conf.d/default.conf || true
+
+# Copy our custom nginx.conf into container
+COPY nginx.conf /etc/nginx/nginx.conf
+
+# Create folder for static files
+RUN mkdir -p /app/static
+
+# The static files will be mounted at runtime from docker-compose

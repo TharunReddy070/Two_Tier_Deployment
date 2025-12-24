@@ -167,19 +167,48 @@ docker compose -f docker-compose.prod.yml up -d
 
 ## Environment Variables
 
-Required variables (see `.env.example`):
+**⚠️ Security Best Practice**: This project uses environment variables for all sensitive credentials. **No default passwords are provided** to enforce proper configuration and prevent accidental use of weak credentials in production.
 
+### Required Configuration
+
+All credentials must be provided via environment variables. Create a `.env` file from the template:
+
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit .env with your actual credentials
+# NEVER commit the .env file to version control
 ```
-MYSQL_ROOT_PASSWORD=<secure_password>
-MYSQL_DATABASE=crud_flask
-MYSQL_USER=dev
-MYSQL_PASSWORD=<secure_password>
-SECRET_KEY=<random_string_32+_chars>
-DB_HOST=phonebook-mysql
-DB_USER=dev
-DB_PASSWORD=<secure_password>
-DB_NAME=crud_flask
+
+### Required Variables
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `MYSQL_ROOT_PASSWORD` | MySQL root password | Strong password (min 16 chars) |
+| `MYSQL_DATABASE` | Database name | `crud_flask` |
+| `MYSQL_USER` | Application database user | `app_user` |
+| `MYSQL_PASSWORD` | Application user password | Strong password (min 16 chars) |
+| `SECRET_KEY` | Flask secret key | Generate with: `python -c "import secrets; print(secrets.token_hex(32))"` |
+| `FLASK_ENV` | Flask environment | `development` or `production` |
+
+### Environment-Specific Recommendations
+
+**Development:**
+```bash
+MYSQL_ROOT_PASSWORD=dev_root_password_123
+MYSQL_USER=dev_user
+MYSQL_PASSWORD=dev_user_password_123
+SECRET_KEY=dev_secret_key_for_testing_only
+FLASK_ENV=development
 ```
+
+**Production:**
+- Use strong, randomly generated passwords (16+ characters)
+- Generate secret key: `python -c "import secrets; print(secrets.token_hex(32))"`
+- Set `FLASK_ENV=production`
+- Store credentials in secure secret management systems (AWS Secrets Manager, HashiCorp Vault, etc.)
+- Never commit `.env` files (already in `.gitignore`)
 
 ## Project Structure
 

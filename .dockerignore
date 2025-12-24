@@ -1,0 +1,11 @@
+.git
+.gitignore
+docker-compose*.yml
+jenkinsfile
+README.md
+LICENSE
+node_modules
+*.pyc
+__pycache__/
+phonebook-deploy/   # if you keep a deploy dir locally
+          # if you use dockerfile-mysql keep it out of general builds (ok for dockerfile-mysql)

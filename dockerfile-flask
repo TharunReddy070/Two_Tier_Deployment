@@ -1,16 +1,26 @@
+# dockerfile-flask
 FROM python:3.9-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \ 
-    build-essential \ 
-    wget \ 
-    && rm -rf /var/lib/apt/lists/*
+# system deps (kept minimal)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    wget \
+ && rm -rf /var/lib/apt/lists/*
 
-COPY source_code/requirements.txt .
+# copy requirements and install
+COPY source_code/requirements.txt ./requirements.txt
+RUN python -m pip install --upgrade pip
+RUN python -m pip install --no-cache-dir -r ./requirements.txt
 
-RUN pip install --no-cache-dir -r requirements.txt
+# copy only app code into /app (so server.py ends up at /app/server.py)
+COPY source_code/ /app/
 
-COPY . .
 EXPOSE 8181
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8181",  "server:app"]
+# gunicorn must import 'server:app' (server.py must define app)
+CMD ["gunicorn", "--bind", "0.0.0.0:8181", "server:app"]

@@ -2,46 +2,39 @@ pipeline {
   agent any
 
   environment {
-    // your DockerHub username
-    DOCKERHUB_USER = "TharunReddy070"
-
-    // images for tagging
+    DOCKERHUB_USER = "devalapallitharun"
     IMAGE_FLASK = "${DOCKERHUB_USER}/phonebook-flask"
     IMAGE_NGINX = "${DOCKERHUB_USER}/phonebook-nginx"
     IMAGE_MYSQL = "${DOCKERHUB_USER}/phonebook-mysql"
-
-    // Jenkins credentials IDs
     DOCKERHUB_CREDS_ID = 'dockerhub-creds'
     EC2_SSH_CREDENTIAL_ID = 'ec2-ssh-key-id'
-
-    // EC2 deployment target
     EC2_USER = "ubuntu"
-    EC2_HOST = "EC2_PUBLIC_IP"      // <-- replace this with your EC2’s public IP
-    DEPLOY_DIR = "/home/ubuntu/phonebook-deploy"   // where docker-compose.yml lives
+    EC2_HOST = "EC2_PUBLIC_IP"
+    DEPLOY_DIR = "/home/ubuntu/phonebook-deploy"
+    // DB credentials - configure in Jenkins credentials
+    MYSQL_ROOT_PASSWORD = credentials('mysql-root-password')
+    MYSQL_PASSWORD = credentials('mysql-user-password')
   }
 
   stages {
-
     stage('Checkout') {
       steps {
         checkout scm
         script {
           env.GIT_COMMIT_FULL = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
-          env.SHORT_TAG = env.GIT_COMMIT_FULL.substring(0, 7)
+          env.SHORT_TAG = env.GIT_COMMIT_FULL.substring(0,7)
         }
-        echo "Building images with tag: ${env.SHORT_TAG}"
+        echo "Tag: ${env.SHORT_TAG}"
       }
     }
 
     stage('Build Images') {
       steps {
-        script {
-          sh """
-            docker build -f dockerfile-flask -t ${IMAGE_FLASK}:${SHORT_TAG} .
-            docker build -f dockerfile-mysql -t ${IMAGE_MYSQL}:${SHORT_TAG} .
-            docker build -f dockerfile-nginx -t ${IMAGE_NGINX}:${SHORT_TAG} .
-          """
-        }
+        sh """
+          docker build -f dockerfile-flask -t ${IMAGE_FLASK}:${SHORT_TAG} .
+          docker build -f dockerfile-nginx -t ${IMAGE_NGINX}:${SHORT_TAG} .
+          docker build -f dockerfile-mysql -t ${IMAGE_MYSQL}:${SHORT_TAG} .
+        """
       }
     }
 
@@ -51,64 +44,23 @@ pipeline {
           def networkName = "ci_net_${SHORT_TAG}"
           def mysqlName = "ci_mysql_${SHORT_TAG}"
           def flaskName = "ci_flask_${SHORT_TAG}"
-          def testPassed = false
+          def nginxName = "ci_nginx_${SHORT_TAG}"
+          sh """
+            set -e
+            docker network create ${networkName} || true
 
-          try {
-            sh "docker network create ${networkName}"
+            docker run -d --name ${mysqlName} --network ${networkName} -e MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD} -e MYSQL_DATABASE=crud_flask -e MYSQL_USER=dev -e MYSQL_PASSWORD=${MYSQL_PASSWORD} ${IMAGE_MYSQL}:${SHORT_TAG}
 
-            // Start MySQL
-            sh """
-              docker run -d --name ${mysqlName} --network ${networkName} \\
-                -e MYSQL_ROOT_PASSWORD=root123 \\
-                -e MYSQL_DATABASE=crud_flask \\
-                -e MYSQL_USER=dev \\
-                -e MYSQL_PASSWORD=dev \\
-                ${IMAGE_MYSQL}:${SHORT_TAG}
-            """
+            # wait for mysql
+            for i in \$(seq 1 30); do docker exec ${mysqlName} mysqladmin ping -uroot -p${MYSQL_ROOT_PASSWORD} &>/dev/null && break; sleep 2; done
 
-            // Wait for MySQL
-            sh """
-              echo "Waiting for MySQL..."
-              for i in \$(seq 1 30); do
-                docker exec ${mysqlName} mysqladmin ping -uroot -proot123 &>/dev/null && break
-                sleep 2
-              done
-            """
+            docker run -d --name ${flaskName} --network ${networkName} -e DB_HOST=${mysqlName} -e DB_USER=dev -e DB_PASSWORD=${MYSQL_PASSWORD} -e DB_NAME=crud_flask ${IMAGE_FLASK}:${SHORT_TAG}
+            # wait for flask
+            for i in \$(seq 1 30); do code=\$(docker logs ${flaskName} 2>&1 | tail -n 20 | grep -c \"Listening at\"); if [ \"\$code\" -gt 0 ]; then break; fi; sleep 2; done
 
-            // Start Flask app
-            sh """
-              docker run -d --name ${flaskName} --network ${networkName} -p 8181:8181 \\
-                -e DB_HOST=${mysqlName} \\
-                -e DB_USER=dev \\
-                -e DB_PASSWORD=dev \\
-                -e DB_NAME=crud_flask \\
-                ${IMAGE_FLASK}:${SHORT_TAG}
-            """
-
-            // Poll Flask endpoint
-            sh '''
-              echo "Waiting for Flask..."
-              for i in $(seq 1 30); do
-                code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8181/)
-                if [ "$code" -eq "200" ]; then
-                  exit 0
-                fi
-                sleep 2
-              done
-              exit 1
-            '''
-
-            testPassed = true
-          } finally {
-            sh """
-              docker rm -f ${flaskName} || true
-              docker rm -f ${mysqlName} || true
-              docker network rm ${networkName} || true
-            """
-            if (!testPassed) {
-              error("Smoke test FAILED")
-            }
-          }
+            # run a simple curl inside an ephemeral container on the same network
+            docker run --rm --network ${networkName} appropriate/curl:latest -s -o /dev/null -w \"%{http_code}\" http://${flaskName}:8181/ | grep -q 200
+          """
         }
       }
     }
@@ -116,23 +68,20 @@ pipeline {
     stage('Login & Push to DockerHub') {
       steps {
         withCredentials([usernamePassword(credentialsId: "${DOCKERHUB_CREDS_ID}", usernameVariable: 'DH_USER', passwordVariable: 'DH_PASS')]) {
-          script {
-            sh """
-              echo "$DH_PASS" | docker login -u "$DH_USER" --password-stdin
+          sh """
+            echo "$DH_PASS" | docker login -u "$DH_USER" --password-stdin
+            docker tag ${IMAGE_FLASK}:${SHORT_TAG} ${IMAGE_FLASK}:latest
+            docker push ${IMAGE_FLASK}:${SHORT_TAG}
+            docker push ${IMAGE_FLASK}:latest
 
-              docker push ${IMAGE_FLASK}:${SHORT_TAG}
-              docker tag ${IMAGE_FLASK}:${SHORT_TAG} ${IMAGE_FLASK}:latest
-              docker push ${IMAGE_FLASK}:latest
+            docker tag ${IMAGE_NGINX}:${SHORT_TAG} ${IMAGE_NGINX}:latest
+            docker push ${IMAGE_NGINX}:${SHORT_TAG}
+            docker push ${IMAGE_NGINX}:latest
 
-              docker push ${IMAGE_MYSQL}:${SHORT_TAG}
-              docker tag ${IMAGE_MYSQL}:${SHORT_TAG} ${IMAGE_MYSQL}:latest
-              docker push ${IMAGE_MYSQL}:latest
-
-              docker push ${IMAGE_NGINX}:${SHORT_TAG}
-              docker tag ${IMAGE_NGINX}:${SHORT_TAG} ${IMAGE_NGINX}:latest
-              docker push ${IMAGE_NGINX}:latest
-            """
-          }
+            docker tag ${IMAGE_MYSQL}:${SHORT_TAG} ${IMAGE_MYSQL}:latest
+            docker push ${IMAGE_MYSQL}:${SHORT_TAG}
+            docker push ${IMAGE_MYSQL}:latest
+          """
         }
       }
     }
@@ -143,13 +92,13 @@ pipeline {
           sh """
             ssh -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} '
               cd ${DEPLOY_DIR}
+              # update compose file to point to new tags (safe sed)
+              sed -i \"s|${IMAGE_FLASK}:.*|${IMAGE_FLASK}:${SHORT_TAG}|g\" docker-compose.prod.yml || true
+              sed -i \"s|${IMAGE_NGINX}:.*|${IMAGE_NGINX}:${SHORT_TAG}|g\" docker-compose.prod.yml || true
+              sed -i \"s|${IMAGE_MYSQL}:.*|${IMAGE_MYSQL}:${SHORT_TAG}|g\" docker-compose.prod.yml || true
 
-              sed -i "s|${IMAGE_FLASK}:.*|${IMAGE_FLASK}:${SHORT_TAG}|g" docker-compose.yml
-              sed -i "s|${IMAGE_MYSQL}:.*|${IMAGE_MYSQL}:${SHORT_TAG}|g" docker-compose.yml
-              sed -i "s|${IMAGE_NGINX}:.*|${IMAGE_NGINX}:${SHORT_TAG}|g" docker-compose.yml
-
-              docker-compose pull
-              docker-compose up -d --remove-orphans
+              docker compose -f docker-compose.prod.yml pull
+              docker compose -f docker-compose.prod.yml up -d --remove-orphans
             '
           """
         }
@@ -158,11 +107,7 @@ pipeline {
   }
 
   post {
-    success {
-      echo "Deployment successful: tag ${SHORT_TAG}"
-    }
-    failure {
-      echo "Pipeline FAILED"
-    }
+    success { echo "Deployed ${SHORT_TAG}" }
+    failure { echo "Pipeline failed" }
   }
 }

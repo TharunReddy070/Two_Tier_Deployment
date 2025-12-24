@@ -75,6 +75,23 @@ def deletephone():
 def page_not_found(error):
     return render_template('error.html')
 
+@app.route('/health')
+def health():
+    # lightweight endpoint for container health checks
+    return 'OK', 200
+
+
 # Only used in LOCAL development, not in Docker
+
+@app.route('/health')
+def health():
+    return 'OK', 200
+
 if __name__ == '__main__':
     app.run(debug=True)
+
+@app.route('/health')
+def health():
+    return 'OK', 200
+
+

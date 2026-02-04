@@ -24,31 +24,31 @@ A DevOps implementation demonstrating containerization and deployment of a two-t
 ┌─────────────────────────────────────────────────────────────────┐
 │                          AWS EC2 Instance                        │
 │                                                                  │
+│       Internet                                                   │
+│          ↓                                                       │
+│       Port 80                                                    │
+│          ↓                                                       │
+│  ┌──────────────────────────────────────────────────┐           │
+│  │  Nginx (Installed on EC2)                        │           │
+│  │  ┌────────────────────────────────────────────┐  │           │
+│  │  │  - Serves static files directly from EC2  │  │           │
+│  │  │  - Reverse proxy to Flask container        │  │           │
+│  │  │  - Port: 80                                │  │           │
+│  │  │  - Config: /etc/nginx/nginx.conf          │  │           │
+│  │  └────────────────────────────────────────────┘  │           │
+│  └────────────────────┬─────────────────────────────┘           │
+│                       │ localhost:8181                          │
+│                       ↓                                         │
 │  ┌────────────────────────────────────────────────────────────┐ │
 │  │                    Docker Environment                       │ │
 │  │                                                             │ │
-│  │   Internet                                                  │ │
-│  │      ↓                                                      │ │
-│  │   Port 80                                                   │ │
-│  │      ↓                                                      │ │
-│  │  ┌─────────────────────────────────────┐                   │ │
-│  │  │     Nginx Container                 │                   │ │
-│  │  │  ┌───────────────────────────────┐  │                   │ │
-│  │  │  │  - Serves static files        │  │                   │ │
-│  │  │  │    (CSS, JS, Images)          │  │                   │ │
-│  │  │  │  - Reverse proxy to Flask     │  │                   │ │
-│  │  │  │  - Port: 80                   │  │                   │ │
-│  │  │  └───────────────────────────────┘  │                   │ │
-│  │  └─────────────────┬───────────────────┘                   │ │
-│  │                    │ Port 8181                             │ │
-│  │                    ↓                                        │ │
 │  │  ┌─────────────────────────────────────┐                   │ │
 │  │  │     Flask Container                 │                   │ │
 │  │  │  ┌───────────────────────────────┐  │                   │ │
 │  │  │  │  - Gunicorn WSGI Server       │  │                   │ │
 │  │  │  │  - Flask Application          │  │                   │ │
 │  │  │  │  - Business Logic             │  │                   │ │
-│  │  │  │  - Port: 8181                 │  │                   │ │
+│  │  │  │  - Port: 8181 (exposed)       │  │                   │ │
 │  │  │  └───────────────────────────────┘  │                   │ │
 │  │  └─────────────────┬───────────────────┘                   │ │
 │  │                    │ Port 3306                             │ │
@@ -58,7 +58,7 @@ A DevOps implementation demonstrating containerization and deployment of a two-t
 │  │  │  ┌───────────────────────────────┐  │                   │ │
 │  │  │  │  - MySQL 5.7 Database         │  │                   │ │
 │  │  │  │  - Data Persistence           │  │                   │ │
-│  │  │  │  - Port: 3306                 │  │                   │ │
+│  │  │  │  - Port: 3306 (internal)      │  │                   │ │
 │  │  │  └───────────────────────────────┘  │                   │ │
 │  │  └─────────────────┬───────────────────┘                   │ │
 │  │                    │                                        │ │
@@ -66,7 +66,6 @@ A DevOps implementation demonstrating containerization and deployment of a two-t
 │  │            Docker Volume (mysql_data)                       │ │
 │  │                                                             │ │
 │  │              Docker Bridge Network                          │ │
-│  │          (phonebook-net / default)                          │ │
 │  └─────────────────────────────────────────────────────────────┘ │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -80,9 +79,9 @@ A DevOps implementation demonstrating containerization and deployment of a two-t
 ```
 
 **Components:**
-- **Nginx**: Entry point, serves static assets and proxies dynamic requests
-- **Flask + Gunicorn**: Application layer handling business logic
-- **MySQL**: Data persistence layer with volume mounting
+- **Nginx** (on EC2): Entry point, serves static assets and proxies dynamic requests to Flask
+- **Flask + Gunicorn** (containerized): Application layer handling business logic
+- **MySQL** (containerized): Data persistence layer with volume mounting
 - **Docker Network**: Isolated network for inter-container communication
 
 ## Technology Stack
@@ -90,8 +89,8 @@ A DevOps implementation demonstrating containerization and deployment of a two-t
 | Component | Technology |
 |-----------|-----------|
 | Application | Flask + Gunicorn |
-| Web Server | Nginx |
-| Database | MySQL 5.7 |
+| Web Server | Nginx (on EC2) |
+| Database | MySQL 5.7 (containerized) |
 | Containerization | Docker & Docker Compose |
 | Registry | Docker Hub |
 | Deployment | AWS EC2 |
@@ -135,6 +134,9 @@ docker compose push
 ### Setup EC2 Instance
 
 ```bash
+# Update system
+sudo apt-get update
+
 # Install Docker
 curl -fsSL https://get.docker.com -o get-docker.sh
 sudo sh get-docker.sh
@@ -143,21 +145,48 @@ sudo usermod -aG docker ubuntu
 # Install Docker Compose
 sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
 sudo chmod +x /usr/local/bin/docker-compose
+
+# Install Nginx (directly on EC2, not containerized)
+sudo apt-get install -y nginx
 ```
 
 ### Deploy Application
 
 ```bash
-# Create deployment directory
-mkdir -p ~/phonebook-deploy
-cd ~/phonebook-deploy
+# Clone repository
+cd /home/ubuntu
+git clone https://github.com/TharunReddy070/Two_Tier_Deployment.git
+cd Two_Tier_Deployment
 
-# Create docker-compose.prod.yml (modify from local version)
 # Create .env file with production credentials
+nano .env
+# Add your environment variables (see Environment Variables section)
 
-# Pull and run
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
+# Configure Nginx
+sudo cp nginx.conf /etc/nginx/nginx.conf
+sudo nginx -t  # Test configuration
+sudo systemctl restart nginx
+sudo systemctl enable nginx
+
+# Start Docker containers (Flask and MySQL only)
+docker-compose up -d
+
+# Verify deployment
+docker-compose ps
+sudo systemctl status nginx
+```
+
+### Alternative: Automated Setup
+
+Use the provided setup script:
+
+```bash
+cd /home/ubuntu/Two_Tier_Deployment
+chmod +x ec2-setup.sh
+./ec2-setup.sh
+# Edit .env with your credentials
+nano .env
+docker-compose down && docker-compose up -d
 ```
 
 ### Security Group Configuration
@@ -214,12 +243,13 @@ FLASK_ENV=development
 
 ```
 Two_Tier_Deployment/
-├── docker-compose.yml          # Local development
-├── dockerfile-flask            # Flask container
-├── dockerfile-mysql            # MySQL container
-├── dockerfile-nginx            # Nginx container
-├── jenkinsfile                 # CI/CD pipeline (practice)
-├── nginx.conf                  # Nginx configuration
+├── docker-compose.yml          # Orchestrates Flask and MySQL containers
+├── dockerfile-flask            # Flask container build
+├── dockerfile-mysql            # MySQL container build
+├── dockerfile-nginx            # (Not used - Nginx on EC2)
+├── nginx.conf                  # Nginx config (copied to /etc/nginx/)
+├── ec2-setup.sh                # Automated EC2 setup script
+├── DEPLOYMENT.md               # Detailed deployment guide
 ├── .env.example                # Environment template
 ├── database/
 │   └── crud_flask.sql          # Database initialization
@@ -228,28 +258,43 @@ Two_Tier_Deployment/
     ├── server.py
     ├── module/
     │   └── database.py
-    ├── static/                 # CSS, JS, fonts
+    ├── static/                 # CSS, JS, fonts (served by Nginx)
     └── templates/              # HTML templates
 ```
 
 ## Troubleshooting
 
+**Check Nginx status:**
+```bash
+sudo systemctl status nginx
+sudo nginx -t  # Test configuration
+sudo tail -f /var/log/nginx/error.log
+```
+
 **Check container status:**
 ```bash
-docker compose ps
-docker compose logs <service_name>
+docker-compose ps
+docker-compose logs flask-app
+docker-compose logs phonebook-mysql
 ```
 
 **Database connection issues:**
 ```bash
 docker exec phonebook-mysql mysqladmin ping -h localhost
-docker compose restart flask-app
+docker-compose restart flask-app
 ```
 
-**Rebuild containers:**
+**Restart services:**
 ```bash
-docker compose down
-docker compose up --build -d
+# Restart Nginx
+sudo systemctl restart nginx
+
+# Restart containers
+docker-compose restart
+
+# Full rebuild
+docker-compose down
+docker-compose up --build -d
 ```
 
 ## Author

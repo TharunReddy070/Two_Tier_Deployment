@@ -1,10 +1,10 @@
-# docker-compose.build.yml
+# Production Docker Compose for AWS EC2
+# This file pulls pre-built images from Docker Hub
+
 services:
   phonebook-mysql:
-    build:
-      context: .
-      dockerfile: dockerfile-mysql
-    image: devalapallitharun/phonebook-mysql:local
+    image: devalapallitharun/phonebook-mysql:latest
+    container_name: phonebook-mysql
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
@@ -17,26 +17,33 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    networks:
+      - app-network
 
   flask-app:
-    build:
-      context: .
-      dockerfile: dockerfile-flask
-    image: devalapallitharun/phonebook-flask:local
+    image: devalapallitharun/phonebook-flask:latest
+    container_name: flask-app
     environment:
       DB_HOST: phonebook-mysql
       DB_USER: ${MYSQL_USER}
       DB_PASSWORD: ${MYSQL_PASSWORD}
       DB_NAME: ${MYSQL_DATABASE}
       SECRET_KEY: ${SECRET_KEY}
-      FLASK_ENV: ${FLASK_ENV:-development}
+      FLASK_ENV: production
     depends_on:
-      - phonebook-mysql
+      phonebook-mysql:
+        condition: service_healthy
     ports:
       - "8181:8181"
-    volumes:
-      - ./source_code:/app:ro
-      - ./source_code/static:/app/static:ro
+    restart: unless-stopped
+    networks:
+      - app-network
 
 volumes:
   mysql_data:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge
